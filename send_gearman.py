@@ -1,6 +1,40 @@
 import gearman
 import base64
 import time
+import rijndael
+
+# Params
+host_name = "m2m_client1.com"
+time = int(time.time())
+rc = 0
+output = "Cosa de output"
+service = "check_cpu" # Optional
+key = 'clave123' # Optional
+
+
+
+KEY_SIZE = 32
+BLOCK_SIZE = 16
+
+def encrypt(key, plaintext):
+    padded_key = key.ljust(KEY_SIZE, '\0')
+    padded_text = plaintext + (BLOCK_SIZE - len(plaintext) % BLOCK_SIZE) * '\0'
+
+    # could also be one of
+    #if len(plaintext) % BLOCK_SIZE != 0:
+    #    padded_text = plaintext.ljust((len(plaintext) / BLOCK_SIZE) + 1 * BLOCKSIZE), '\0')
+    # -OR-
+    #padded_text = plaintext.ljust((len(plaintext) + (BLOCK_SIZE - len(plaintext) % BLOCK_SIZE)), '\0')
+
+    r = rijndael.rijndael(padded_key, BLOCK_SIZE)
+
+    ciphertext = ''
+    for start in range(0, len(padded_text), BLOCK_SIZE):
+        ciphertext += r.encrypt(padded_text[start:start+BLOCK_SIZE])
+
+    encoded = base64.b64encode(ciphertext)
+
+    return encoded
 
 def check_request_status(job_request):
     if job_request.complete:
@@ -10,14 +44,8 @@ def check_request_status(job_request):
     elif job_request.state == JOB_UNKNOWN:
         print "Job %s connection failed!" % job_request.unique
 
+
 gm_client = gearman.GearmanClient(['localhost:4730'])
-
-
-host_name = "client1.com"
-time = int(time.time())
-rc = 0
-output = "OK - status ok"
-service = "check_cpu"
 
 data="type=passive\n\
 host_name=%s\n\
@@ -35,7 +63,14 @@ else:
   print "Service check"
   data += "\nservice_description="+service
 
-data_enc = base64.b64encode(data)
+try:
+  key
+except NameError:
+  data_enc = base64.b64encode(data)
+  print "No encryption"
+else:
+  data_enc = encrypt(key, data)
+  print "Encryption"
 
 completed_job_request = gm_client.submit_job("check_results", data_enc)
 check_request_status(completed_job_request)
